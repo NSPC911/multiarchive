@@ -1,6 +1,7 @@
 import sys
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from io import TextIOWrapper
 from pathlib import Path
 from types import TracebackType
@@ -69,6 +70,70 @@ class ArchiveExtensions:
     bz2 = (".tbz", ".tbz2", ".tar.bz2")
     xz = (".tar.xz", ".tar.lzma")
     zst = (".tzst", ".tar.zst")
+
+
+@dataclass(frozen=True)
+class ArchiveMemberInfo:
+    """Unified metadata for archive members with a consistent interface.
+
+    The `raw` attribute provides direct access to the underlying backend-specific
+    info object (ZipInfo, TarInfo, or RarInfo) when advanced or format-specific
+    features are needed.
+    """
+
+    name: str
+    uncompressed_size: int
+    compressed_size: int | None
+    mtime: float
+    mode: int | None
+    is_dir: bool
+    raw: InfoType
+
+    @classmethod
+    def from_zipinfo(cls, info: zipfile.ZipInfo) -> "ArchiveMemberInfo":
+        mtime_dt = datetime(*info.date_time)
+        return cls(
+            name=info.filename,
+            uncompressed_size=info.file_size,
+            compressed_size=info.compress_size,
+            mtime=mtime_dt.timestamp(),
+            mode=(info.external_attr >> 16) or None,
+            is_dir=info.is_dir(),
+            raw=info,
+        )
+
+    @classmethod
+    def from_tarinfo(cls, info: tarfile.TarInfo) -> "ArchiveMemberInfo":
+        return cls(
+            name=info.name,
+            uncompressed_size=info.size,
+            compressed_size=None,
+            mtime=float(info.mtime or 0.0),
+            mode=info.mode,
+            is_dir=info.isdir(),
+            raw=info,
+        )
+
+    @classmethod
+    def from_rarinfo(cls, info: "rarfile.RarInfo") -> "ArchiveMemberInfo":
+        if info.mtime is not None:
+            mtime = info.mtime.timestamp()
+        elif info.date_time is not None:
+            mtime = datetime(*info.date_time).timestamp()
+        else:
+            mtime = 0.0
+        assert info.filename is not None
+        assert info.file_size is not None
+        assert info.compress_size is not None
+        return cls(
+            name=info.filename,
+            uncompressed_size=info.file_size,
+            compressed_size=info.compress_size,
+            mtime=mtime,
+            mode=info.mode,
+            is_dir=info.is_dir(),
+            raw=info,
+        )
 
 
 class Archive:
@@ -335,11 +400,11 @@ class Archive:
 
     def infolist(
         self,
-    ) -> InfoList:
-        """Return list of archive members (similar to zipfile.infolist()).
+    ) -> list[ArchiveMemberInfo]:
+        """Return list of archive members wrapped in ArchiveMemberInfo.
 
         Returns:
-            List of ZipInfo, TarInfo or RarInfo objects
+            List of ArchiveMemberInfo objects with unified metadata
 
         Raises:
             RuntimeError: If archive is not opened
@@ -353,13 +418,22 @@ class Archive:
             match self._archive_type:
                 case "rar":
                     assert isinstance(self._archive, rarfile.RarFile)
-                    return self._archive.infolist()
+                    return [
+                        ArchiveMemberInfo.from_rarinfo(i)
+                        for i in self._archive.infolist()
+                    ]
                 case "zip":
                     assert isinstance(self._archive, zipfile.ZipFile)
-                    return self._archive.infolist()
+                    return [
+                        ArchiveMemberInfo.from_zipinfo(i)
+                        for i in self._archive.infolist()
+                    ]
                 case _:
                     assert isinstance(self._archive, tarfile.TarFile)
-                    return self._archive.getmembers()
+                    return [
+                        ArchiveMemberInfo.from_tarinfo(i)
+                        for i in self._archive.getmembers()
+                    ]
         except BadArchive as exc:
             raise BadArchiveError(f"Failed to open archive. {exc}") from exc
         except FileNotFoundError:
@@ -644,7 +718,7 @@ class Archive:
                 info = (
                     member
                     if isinstance(member, zipfile.ZipInfo)
-                    else self._archive.getinfo(member)
+                    else self._archive.getinfo(str(member))
                 )
                 return info.is_dir()
             case "rar":
@@ -652,9 +726,9 @@ class Archive:
                 info = (
                     member
                     if isinstance(member, rarfile.RarInfo)
-                    else self._archive.getinfo(member)
+                    else self._archive.getinfo(str(member))
                 )
-                return info.isdir
+                return info.is_dir()
             case _:
                 assert isinstance(self._archive, tarfile.TarFile)
                 info = (

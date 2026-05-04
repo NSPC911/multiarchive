@@ -1,3 +1,3 @@
-from ._archive import Archive
+from ._archive import Archive, ArchiveMemberInfo
 
-__all__ = ["Archive"]
+__all__ = ["Archive", "ArchiveMemberInfo"]
