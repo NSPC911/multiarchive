@@ -471,7 +471,7 @@ class Archive:
 
     def extract(
         self,
-        member: str | InfoType,
+        member: str | InfoType | ArchiveMemberInfo,
         path: str | Path = "",
     ) -> str:
         """Extract a single member to the specified path.
@@ -529,7 +529,7 @@ class Archive:
 
     def open(
         self,
-        member: str | InfoType,
+        member: str | InfoType | ArchiveMemberInfo,
         mode: Literal["r", "w"] = "r",
     ) -> IO[bytes] | None:
         """Open a member file for reading.
@@ -697,7 +697,7 @@ class Archive:
             self._compress_file_obj.close()
             self._compress_file_obj = None
 
-    def is_dir(self, member: str | InfoType) -> bool:
+    def is_dir(self, member: str | InfoType | ArchiveMemberInfo) -> bool:
         """Check if a member is a directory.
 
         Args:
@@ -711,6 +711,8 @@ class Archive:
         """
         if not self._archive:
             raise RuntimeError("Archive not opened")
+        elif isinstance(member, ArchiveMemberInfo):
+            return member.is_dir
 
         match self._archive_type:
             case "zip":
@@ -738,7 +740,7 @@ class Archive:
                 )
                 return info.isdir()
 
-    def is_file(self, member: str | InfoType) -> bool:
+    def is_file(self, member: str | InfoType | ArchiveMemberInfo) -> bool:
         """Check if a member is a regular file.
 
         Args:
@@ -747,7 +749,7 @@ class Archive:
         Returns:
             True if the member is a file (not a directory), False otherwise
 
-        Raises:
+        Implicit Raises:
             RuntimeError: If archive is not opened
         """
         return not self.is_dir(member)
