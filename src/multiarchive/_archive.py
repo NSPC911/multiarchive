@@ -101,6 +101,40 @@ class Archive:
         self._archive_type: Literal["zip", "rar", "tar"] | None = None
         self._compress_file_obj: CompressFileObjType | None = None
 
+    @classmethod
+    def open_archive(
+        cls,
+        filename: str | Path,
+        mode: str = "r",
+        compression_level: int | None = None,
+    ) -> "Archive":
+        """Create and open an archive without using a context manager.
+
+        This is a factory method alternative to using __init__ directly.
+
+        Args:
+            filename: Path to the archive file
+            mode: File access mode ('r' for read, 'w' for write, 'a' for append)
+            compression_level: Compression level (ZIP: 0-9, TAR gzip: 0-9, TAR bzip2: 1-9)
+
+        Returns:
+            Opened Archive instance ready for use
+
+        Raises:
+            FileNotFoundError: If the archive file doesn't exist (for read mode)
+            ValueError: If file extension is not recognized or compression_level is invalid
+            BadArchiveError: If the archive cannot be opened due to format errors
+
+        Examples:
+            >>> archive = Archive.open_archive("file.zip")
+            >>> archive.namelist()
+            ['file1.txt', 'file2.txt']
+            >>> archive.close()
+        """
+        archive = cls(filename, mode=mode, compression_level=compression_level)
+        archive._detect_and_open()
+        return archive
+
     def __enter__(self) -> "Archive":
         """Context manager entry - opens the archive.
 
