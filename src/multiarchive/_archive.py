@@ -257,8 +257,8 @@ class Archive:
 
         Raises:
             FileNotFoundError: If the archive file doesn't exist
-            ValueError: If file cannot be opened as any supported archive format,
-                       or if the archive is password-protected
+            NotImplementedError: If the archive is password-protected (for ZIP and RAR)
+            ValueError: If the file is not a valid ZIP, RAR, or TAR archive
         """  # noqa: DOC502
         # Try ZIP first
         try:
@@ -266,7 +266,7 @@ class Archive:
             # Check for password protection
             if any(zinfo.flag_bits & 0x1 for zinfo in archive.infolist()):
                 archive.close()
-                raise ValueError("Password-protected ZIP files are not supported")
+                raise NotImplementedError("Password-protected ZIP files are not supported")
             self._archive = archive
             self._archive_type = "zip"
             return
@@ -279,7 +279,7 @@ class Archive:
             # Check for password protection
             if archive.needs_password():
                 archive.close()
-                raise ValueError("Password-protected RAR files are not supported")
+                raise NotImplementedError("Password-protected RAR files are not supported")
             self._archive = archive
             self._archive_type = "rar"
             return
