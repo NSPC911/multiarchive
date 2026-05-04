@@ -490,6 +490,8 @@ class Archive:
         """
         if not self._archive:
             raise RuntimeError("Archive not opened")
+        if isinstance(member, ArchiveMemberInfo):
+            member = member.raw
 
         try:
             match self._archive_type:
@@ -550,6 +552,8 @@ class Archive:
         """
         if not self._archive:
             raise RuntimeError("Archive not opened")
+        if isinstance(member, ArchiveMemberInfo):
+            member = member.raw
 
         try:
             match self._archive_type:
