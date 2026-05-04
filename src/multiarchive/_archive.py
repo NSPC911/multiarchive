@@ -622,3 +622,58 @@ class Archive:
         if self._compress_file_obj:
             self._compress_file_obj.close()
             self._compress_file_obj = None
+
+    def is_dir(self, member: str | InfoType) -> bool:
+        """Check if a member is a directory.
+
+        Args:
+            member: Name of the member or its info object
+
+        Returns:
+            True if the member is a directory, False otherwise
+
+        Raises:
+            RuntimeError: If archive is not opened
+        """
+        if not self._archive:
+            raise RuntimeError("Archive not opened")
+
+        match self._archive_type:
+            case "zip":
+                assert isinstance(self._archive, zipfile.ZipFile)
+                info = (
+                    member
+                    if isinstance(member, zipfile.ZipInfo)
+                    else self._archive.getinfo(member)
+                )
+                return info.is_dir()
+            case "rar":
+                assert isinstance(self._archive, rarfile.RarFile)
+                info = (
+                    member
+                    if isinstance(member, rarfile.RarInfo)
+                    else self._archive.getinfo(member)
+                )
+                return info.isdir
+            case _:
+                assert isinstance(self._archive, tarfile.TarFile)
+                info = (
+                    member
+                    if isinstance(member, tarfile.TarInfo)
+                    else self._archive.getmember(member)
+                )
+                return info.isdir()
+
+    def is_file(self, member: str | InfoType) -> bool:
+        """Check if a member is a regular file.
+
+        Args:
+            member: Name of the member or its info object
+
+        Returns:
+            True if the member is a file (not a directory), False otherwise
+
+        Raises:
+            RuntimeError: If archive is not opened
+        """
+        return not self.is_dir(member)
