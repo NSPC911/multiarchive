@@ -477,3 +477,114 @@ class Archive:
             raise BadArchiveError(f"Failed to open member. {exc}") from exc
         except FileNotFoundError:
             raise
+
+    @property
+    def members(self) -> List[str]:
+        """Return list of member names (alias for namelist()).
+
+        Returns:
+            List of strings containing all member file/directory names
+        """
+        return self.namelist()
+
+    @property
+    def size(self) -> int:
+        """Return total uncompressed size of all members in bytes.
+
+        Returns:
+            Total uncompressed size across all archive members
+
+        Raises:
+            RuntimeError: If archive is not opened
+        """
+        if not self._archive:
+            raise RuntimeError("Archive not opened")
+
+        match self._archive_type:
+            case "zip":
+                assert isinstance(self._archive, zipfile.ZipFile)
+                return sum(info.file_size for info in self._archive.infolist())
+            case "rar":
+                assert isinstance(self._archive, rarfile.RarFile)
+                return sum(info.file_size for info in self._archive.infolist())
+            case _:
+                assert isinstance(self._archive, tarfile.TarFile)
+                return sum(info.size for info in self._archive.getmembers())
+
+    @property
+    def comment(self) -> bytes:
+        """Get the archive comment (ZIP only).
+
+        Returns:
+            Archive comment as bytes, or empty bytes for non-ZIP archives
+
+        Raises:
+            RuntimeError: If archive is not opened
+        """
+        if not self._archive:
+            raise RuntimeError("Archive not opened")
+
+        if self._archive_type == "zip":
+            assert isinstance(self._archive, zipfile.ZipFile)
+            return self._archive.comment
+        return b""
+
+    @comment.setter
+    def comment(self, value: bytes) -> None:
+        """Set the archive comment (ZIP only).
+
+        Args:
+            value: Comment to set as bytes
+
+        Raises:
+            RuntimeError: If archive is not opened
+            ValueError: If attempting to set comment on non-ZIP archive
+        """
+        if not self._archive:
+            raise RuntimeError("Archive not opened")
+
+        if self._archive_type != "zip":
+            raise ValueError("Archive comment is only supported for ZIP files")
+
+        assert isinstance(self._archive, zipfile.ZipFile)
+        self._archive.comment = value
+
+    def __iter__(self):
+        """Iterate over member names.
+
+        Yields:
+            String containing each member file/directory name
+        """
+        yield from self.namelist()
+
+    def __contains__(self, member: str) -> bool:
+        """Check if a member exists in the archive.
+
+        Args:
+            member: Name of the member to check
+
+        Returns:
+            True if member exists in archive, False otherwise
+        """
+        return member in self.namelist()
+
+    def __len__(self) -> int:
+        """Return number of members in the archive.
+
+        Returns:
+            Number of files/directories in the archive
+        """
+        return len(self.namelist())
+
+    def close(self) -> None:
+        """Explicitly close the archive.
+
+        Safe to call multiple times. Closes both the archive and any
+        compression file objects.
+        """
+        if self._archive:
+            self._archive.close()
+            self._archive = None
+        if self._compress_file_obj:
+            self._compress_file_obj.close()
+            self._compress_file_obj = None
