@@ -1,3 +1,4 @@
+from os import path
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -259,7 +260,12 @@ class Archive:
             FileNotFoundError: If the archive file doesn't exist
             NotImplementedError: If the archive is password-protected (for ZIP and RAR)
             ValueError: If the file is not a valid ZIP, RAR, or TAR archive
+            RuntimeError: If the file is not readable or is not a file
         """  # noqa: DOC502
+        # first check if it is readable at all
+        if not path.isfile(self.filename):
+            raise RuntimeError(f"File '{self.filename}' does not exist or is not a file")
+
         # Try ZIP first
         try:
             archive = zipfile.ZipFile(self.filename, "r")
