@@ -1,12 +1,12 @@
-from os import path
 import sys
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from io import TextIOWrapper
+from os import path
 from pathlib import Path
 from types import TracebackType
-from typing import IO, List, Literal, TypeAlias
+from typing import IO, Iterator, List, Literal, TypeAlias
 
 try:
     import bz2 as bzip2
@@ -667,7 +667,7 @@ class Archive:
         assert isinstance(self._archive, zipfile.ZipFile)
         self._archive.comment = value
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         """Iterate over member names.
 
         Yields:
