@@ -245,7 +245,7 @@ class Archive:
                 self._detect_and_open_read()
             else:
                 self._detect_and_open_write()
-        except BadArchive as exc:
+        except (BadArchive) + (EOFError,) as exc:
             raise BadArchiveError(f"Failed to open archive. {exc}") from exc
         except (FileNotFoundError, ValueError):
             raise
