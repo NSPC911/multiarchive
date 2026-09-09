@@ -284,8 +284,10 @@ class Archive:
             RuntimeError: If the file is not readable or is not a file
         """  # noqa: DOC502
         # first check if it is readable at all
+        if not path.exists(self.filename):
+            raise FileNotFoundError(f"File '{self.filename}' does not exist")
         if not path.isfile(self.filename):
-            raise RuntimeError(f"File '{self.filename}' does not exist or is not a file")
+            raise RuntimeError(f"File '{self.filename}' is not a regular file")
 
         # Try ZIP first
         try:
