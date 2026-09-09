@@ -1,6 +1,8 @@
 import gzip
+import os
 import tarfile
 import zipfile
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -422,6 +424,34 @@ class TestWriteMode:
         with Archive(tar_path, mode="w") as archive:
             pass
         assert tar_path.exists()
+
+    def test_add_zip_file_with_pre_1980_timestamp(self, tmp_path):
+        source = tmp_path / "old.txt"
+        source.write_text("old")
+        timestamp = datetime(1979, 6, 15, 12).timestamp()
+        os.utime(source, (timestamp, timestamp))
+
+        if source.stat().st_mtime >= datetime(1980, 1, 1).timestamp():
+            pytest.skip("Filesystem does not support pre-1980 timestamps")
+
+        zip_path = tmp_path / "old.zip"
+        with Archive(zip_path, mode="w", strict_timestamps=False) as archive:
+            archive.add(source, arcname="old.txt")
+
+        with zipfile.ZipFile(zip_path) as archive:
+            assert archive.read("old.txt") == b"old"
+            assert archive.getinfo("old.txt").date_time == (1980, 1, 1, 0, 0, 0)
+
+    def test_add_uses_arcname_for_tar(self, tmp_path):
+        source = tmp_path / "source.txt"
+        source.write_text("content")
+        tar_path = tmp_path / "new.tar"
+
+        with Archive(tar_path, mode="w") as archive:
+            archive.add(source, arcname="nested/renamed.txt")
+
+        with tarfile.open(tar_path) as archive:
+            assert "nested/renamed.txt" in archive.getnames()
 
     def test_compression_level_zip_invalid(self, tmp_path):
         with pytest.raises(ValueError, match="compression level must be between 0-9"):

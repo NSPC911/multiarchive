@@ -146,6 +146,21 @@ with Archive("output.tar.gz", mode="w", compression_level=9) as arc:
     ...
 ```
 
+Add members with an optional name to use inside the archive:
+
+```python
+with Archive("output.zip", mode="w") as arc:
+    arc.add("src/main.py", arcname="main.py")
+```
+
+ZIP timestamps are limited to the years 1980 through 2107. To clamp timestamps
+outside that range instead of raising an error:
+
+```python
+with Archive("output.zip", mode="w", strict_timestamps=False) as arc:
+    arc.add("old-file.txt")
+```
+
 The format is determined by file extension. Use the `algo` parameter to override:
 
 ```python

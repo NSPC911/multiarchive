@@ -56,6 +56,10 @@ if gzip is not None:
 else:
     CompressFileObjType: TypeAlias = IO[bytes] | TextIOWrapper
 
+Algos: TypeAlias = Literal[
+    "zip", "tar", "rar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst"
+]
+
 
 class BadArchiveError(Exception):
     """Custom exception for handling bad or unsupported archive files."""
@@ -143,18 +147,22 @@ class Archive:
     def __init__(
         self,
         filename: str | Path,
-        algo: Literal["zip", "tar", "rar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst"]
-        | None = None,
+        algo: Algos | None = None,
         mode: str = "r",
         compression_level: int | None = None,
+        *,
+        strict_timestamps: bool = True,
     ) -> None:
         """Initialize the archive handler.
 
         Args:
             filename: Path to the archive file
+            algo: Optional override for archive type based on file extension
             mode: File access mode ('r' for read, 'w' for write, 'a' for append)
             compression_level: Compression level (ZIP: 0-9, TAR gzip: 0-9, TAR bzip2: 1-9)
                              If None, uses default compression
+            strict_timestamps: If True, reject timestamps outside the range supported
+                by ZIP; if False, clamp them to the minimum or maximum supported value
 
         Raises:
             ValueError: If mode is not supported or compression_level is out of range
@@ -166,6 +174,7 @@ class Archive:
         self._archive: ArchiveType | None = None
         self._archive_type: Literal["zip", "rar", "tar"] | None = None
         self._compress_file_obj: CompressFileObjType | None = None
+        self.strict_timestamps = strict_timestamps
 
     @classmethod
     def open_archive(
@@ -173,6 +182,9 @@ class Archive:
         filename: str | Path,
         mode: str = "r",
         compression_level: int | None = None,
+        *,
+        algo: Algos | None = None,
+        strict_timestamps: bool = True,
     ) -> "Archive":
         """Create and open an archive without using a context manager.
 
@@ -180,8 +192,11 @@ class Archive:
 
         Args:
             filename: Path to the archive file
+            algo: Optional override for archive type based on file extension
             mode: File access mode ('r' for read, 'w' for write, 'a' for append)
             compression_level: Compression level (ZIP: 0-9, TAR gzip: 0-9, TAR bzip2: 1-9)
+            strict_timestamps: If True, reject timestamps outside the range supported
+                by ZIP; if False, clamp them to the minimum or maximum supported value
 
         Returns:
             Opened Archive instance ready for use
@@ -196,8 +211,14 @@ class Archive:
             >>> archive.namelist()
             ['file1.txt', 'file2.txt']
             >>> archive.close()
-        """
-        archive = cls(filename, mode=mode, compression_level=compression_level)
+        """  # noqa: DOC502
+        archive = cls(
+            filename,
+            algo=algo,
+            mode=mode,
+            compression_level=compression_level,
+            strict_timestamps=strict_timestamps,
+        )
         archive._detect_and_open()
         return archive
 
@@ -318,10 +339,17 @@ class Archive:
                 if not (0 <= self.compression_level <= 9):
                     raise ValueError("ZIP compression level must be between 0-9")
                 self._archive = zipfile.ZipFile(
-                    self.filename, self.mode, compresslevel=self.compression_level
+                    self.filename,
+                    self.mode,
+                    compresslevel=self.compression_level,
+                    strict_timestamps=self.strict_timestamps,
                 )
             else:
-                self._archive = zipfile.ZipFile(self.filename, self.mode)
+                self._archive = zipfile.ZipFile(
+                    self.filename,
+                    self.mode,
+                    strict_timestamps=self.strict_timestamps,
+                )
         elif filename_lower.endswith(ArchiveExtensions.rar) or (self.algo == "rar"):
             raise ValueError("RAR files can only be opened in read mode ('r')")
         else:
@@ -763,3 +791,35 @@ class Archive:
             RuntimeError: If archive is not opened
         """
         return not self.is_dir(member)
+
+    def add(self, file: str | Path, arcname: str | Path | None = None) -> None:
+        """Add a file or directory to the archive.
+
+        Args:
+            file: File or directory to add
+            arcname: Name to use for the member inside the archive
+
+        Raises:
+            RuntimeError: If archive is not opened
+            ValueError: If archive is not in write mode
+            FileNotFoundError: If the specified file does not exist
+        """
+        if not self._archive:
+            raise RuntimeError("Archive not opened")
+        if self.mode not in ("w", "a"):
+            raise ValueError(
+                "Archive must be opened in write ('w') or append ('a') mode"
+            )
+
+        if not path.exists(file):
+            raise FileNotFoundError(f"File '{file}' does not exist")
+
+        match self._archive_type:
+            case "zip":
+                assert isinstance(self._archive, zipfile.ZipFile)
+                self._archive.write(file, arcname=arcname)
+            case "rar":
+                raise ValueError("Adding files to RAR archives is not supported")
+            case _:
+                assert isinstance(self._archive, tarfile.TarFile)
+                self._archive.add(file, arcname=arcname)
