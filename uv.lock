@@ -101,7 +101,7 @@ wheels = [
 
 [[package]]
 name = "multiarchive"
-version = "0.1.4"
+version = "0.1.4.post1"
 source = { editable = "." }
 
 [package.dev-dependencies]
