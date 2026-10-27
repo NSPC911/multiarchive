@@ -9,7 +9,7 @@ from multiarchive._archive import ArchiveMemberInfo
 
 
 @pytest.fixture
-def sample_zipinfo():
+def sample_zipinfo() -> zipfile.ZipInfo:
     zi = zipfile.ZipInfo("test/file.txt", date_time=(2024, 1, 15, 10, 30, 0))
     zi.file_size = 1024
     zi.compress_size = 512
@@ -18,7 +18,7 @@ def sample_zipinfo():
 
 
 @pytest.fixture
-def sample_zipinfo_dir():
+def sample_zipinfo_dir() -> zipfile.ZipInfo:
     zi = zipfile.ZipInfo("test/dir/", date_time=(2024, 1, 15, 10, 30, 0))
     zi.file_size = 0
     zi.compress_size = 0
@@ -27,7 +27,7 @@ def sample_zipinfo_dir():
 
 
 @pytest.fixture
-def sample_tarinfo():
+def sample_tarinfo() -> tarfile.TarInfo:
     ti = tarfile.TarInfo(name="test/file.txt")
     ti.size = 2048
     ti.mtime = 1705312200.0
@@ -37,7 +37,7 @@ def sample_tarinfo():
 
 
 @pytest.fixture
-def sample_tarinfo_dir():
+def sample_tarinfo_dir() -> tarfile.TarInfo:
     ti = tarfile.TarInfo(name="test/dir/")
     ti.size = 0
     ti.mtime = 1705312200.0
@@ -47,24 +47,24 @@ def sample_tarinfo_dir():
 
 
 class TestArchiveMemberInfoFromZipinfo:
-    def test_basic_fields(self, sample_zipinfo):
+    def test_basic_fields(self, sample_zipinfo: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
         assert info.name == "test/file.txt"
         assert info.uncompressed_size == 1024
         assert info.compressed_size == 512
         assert info.is_dir is False
 
-    def test_mtime_conversion(self, sample_zipinfo):
+    def test_mtime_conversion(self, sample_zipinfo: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
         expected_dt = datetime(2024, 1, 15, 10, 30, 0)
         expected_ts = expected_dt.timestamp()
         assert info.mtime == expected_ts
 
-    def test_mode_from_external_attr(self, sample_zipinfo):
+    def test_mode_from_external_attr(self, sample_zipinfo: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
         assert info.mode == 0o644
 
-    def test_mode_is_none_when_no_perms(self):
+    def test_mode_is_none_when_no_perms(self) -> None:
         zi = zipfile.ZipInfo("file.txt")
         zi.external_attr = 0
         zi.file_size = 100
@@ -72,45 +72,45 @@ class TestArchiveMemberInfoFromZipinfo:
         info = ArchiveMemberInfo.from_zipinfo(zi)
         assert info.mode is None
 
-    def test_is_dir_for_directory(self, sample_zipinfo_dir):
+    def test_is_dir_for_directory(self, sample_zipinfo_dir: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo_dir)
         assert info.is_dir is True
 
-    def test_raw_is_zipinfo(self, sample_zipinfo):
+    def test_raw_is_zipinfo(self, sample_zipinfo: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
         assert isinstance(info.raw, zipfile.ZipInfo)
         assert info.raw is sample_zipinfo
 
 
 class TestArchiveMemberInfoFromTarinfo:
-    def test_basic_fields(self, sample_tarinfo):
+    def test_basic_fields(self, sample_tarinfo: tarfile.TarInfo) -> None:
         info = ArchiveMemberInfo.from_tarinfo(sample_tarinfo)
         assert info.name == "test/file.txt"
         assert info.uncompressed_size == 2048
         assert info.is_dir is False
 
-    def test_compressed_size_is_none(self, sample_tarinfo):
+    def test_compressed_size_is_none(self, sample_tarinfo: tarfile.TarInfo) -> None:
         info = ArchiveMemberInfo.from_tarinfo(sample_tarinfo)
         assert info.compressed_size is None
 
-    def test_mtime_preserved(self, sample_tarinfo):
+    def test_mtime_preserved(self, sample_tarinfo: tarfile.TarInfo) -> None:
         info = ArchiveMemberInfo.from_tarinfo(sample_tarinfo)
         assert info.mtime == 1705312200.0
 
-    def test_mode_preserved(self, sample_tarinfo):
+    def test_mode_preserved(self, sample_tarinfo: tarfile.TarInfo) -> None:
         info = ArchiveMemberInfo.from_tarinfo(sample_tarinfo)
         assert info.mode == 0o644
 
-    def test_is_dir_for_directory(self, sample_tarinfo_dir):
+    def test_is_dir_for_directory(self, sample_tarinfo_dir: tarfile.TarInfo) -> None:
         info = ArchiveMemberInfo.from_tarinfo(sample_tarinfo_dir)
         assert info.is_dir is True
 
-    def test_raw_is_tarinfo(self, sample_tarinfo):
+    def test_raw_is_tarinfo(self, sample_tarinfo: tarfile.TarInfo) -> None:
         info = ArchiveMemberInfo.from_tarinfo(sample_tarinfo)
         assert isinstance(info.raw, tarfile.TarInfo)
         assert info.raw is sample_tarinfo
 
-    def test_mtime_defaults_to_zero_when_none(self):
+    def test_mtime_defaults_to_zero_when_none(self) -> None:
         ti = tarfile.TarInfo(name="file.txt")
         ti.size = 100
         object.__setattr__(ti, "mtime", None)
@@ -119,7 +119,7 @@ class TestArchiveMemberInfoFromTarinfo:
 
 
 class TestArchiveMemberInfoFromRarinfo:
-    def test_basic_fields(self):
+    def test_basic_fields(self) -> None:
         import rarfile
 
         ri = rarfile.RarInfo()
@@ -137,7 +137,7 @@ class TestArchiveMemberInfoFromRarinfo:
         assert info.compressed_size == 2048
         assert info.is_dir is False
 
-    def test_mtime_from_datetime_object(self):
+    def test_mtime_from_datetime_object(self) -> None:
         import rarfile
 
         ri = rarfile.RarInfo()
@@ -150,7 +150,7 @@ class TestArchiveMemberInfoFromRarinfo:
             info.mtime == datetime(2024, 3, 1, 8, 0, 0, tzinfo=timezone.utc).timestamp()
         )
 
-    def test_mtime_from_date_time_tuple(self):
+    def test_mtime_from_date_time_tuple(self) -> None:
         import rarfile
 
         ri = rarfile.RarInfo()
@@ -164,7 +164,7 @@ class TestArchiveMemberInfoFromRarinfo:
         expected_ts = expected_dt.timestamp()
         assert info.mtime == expected_ts
 
-    def test_mtime_defaults_to_zero_when_none(self):
+    def test_mtime_defaults_to_zero_when_none(self) -> None:
         import rarfile
 
         ri = rarfile.RarInfo()
@@ -176,7 +176,7 @@ class TestArchiveMemberInfoFromRarinfo:
         info = ArchiveMemberInfo.from_rarinfo(ri)
         assert info.mtime == 0.0
 
-    def test_is_dir(self):
+    def test_is_dir(self) -> None:
         import rarfile
 
         ri = rarfile.RarInfo()
@@ -191,7 +191,7 @@ class TestArchiveMemberInfoFromRarinfo:
         assert info.raw.filename == "dir/"
         assert info.raw.mode == 0o40755
 
-    def test_raw_is_rarinfo(self):
+    def test_raw_is_rarinfo(self) -> None:
         import rarfile
 
         ri = rarfile.RarInfo()
@@ -205,12 +205,14 @@ class TestArchiveMemberInfoFromRarinfo:
 
 
 class TestArchiveMemberImmutability:
-    def test_frozen_dataclass(self, sample_zipinfo):
+    def test_frozen_dataclass(self, sample_zipinfo: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
-        with pytest.raises(Exception):
-            info.name = "modified.txt"
+        with pytest.raises(AttributeError):
+            info.name = "modified.txt"  # ty: ignore
 
-    def test_replace_creates_new_instance(self, sample_zipinfo):
+    def test_replace_creates_new_instance(
+        self, sample_zipinfo: zipfile.ZipInfo
+    ) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
         modified = replace(info, name="new_name.txt")
         assert modified.name == "new_name.txt"
