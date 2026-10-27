@@ -59,8 +59,13 @@ with Archive("archive.zip") as arc:
 | TAR.XZ  | Yes  | Yes   | `.tar.xz`, `.tar.lzma`      |
 | TAR.ZST | Yes  | Yes   | `.tzst`, `.tar.zst`         |
 | RAR     | Yes  | No    | `.rar`                      |
+| GZIP    | Yes  | No    | `.gz`                       |
+| BZIP2   | Yes  | No    | `.bz2`                      |
+| XZ      | Yes  | No    | `.xz`                       |
+| ZSTD    | Yes  | No    | `.zst`, `.zstd`             |
 
 RAR support requires the `rarfile` package and an external `unrar` tool.
+Plain compressed files expose one member named after the file without its compression extension (e.g. `report.txt.gz` contains `report.txt`). They support `open()` and `extract()`, but not writing or `add()`. Their `infolist()` entry has `raw=None`; calculating uncompressed size reads the compressed data.
 
 ## Reading Archives
 
@@ -190,7 +195,7 @@ The `infolist()` method returns `ArchiveMemberInfo` objects with a unified inter
 | `mtime`             | `float`                         | Modification time as epoch seconds     |
 | `mode`              | `int \| None`                   | Unix permission bits                   |
 | `is_dir`            | `bool`                          | Whether the member is a directory      |
-| `raw`               | `ZipInfo \| TarInfo \| RarInfo` | Original backend object (escape hatch) |
+| `raw`               | `ZipInfo \| TarInfo \| RarInfo \| None` | Original backend object (`None` for plain compressed files) |
 
 Factory methods for direct conversion (you shouldn't need these in normal usage):
 

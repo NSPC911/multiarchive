@@ -1,5 +1,8 @@
+import bz2
 import gzip
+import lzma
 import os
+import sys
 import tarfile
 import zipfile
 from datetime import datetime
@@ -9,6 +12,11 @@ from pathlib import Path
 import pytest
 
 from multiarchive._archive import Archive, ArchiveMemberInfo, BadArchiveError
+
+if sys.version_info < (3, 14):
+    from backports import zstd  # ty: ignore[unresolved-import]
+else:
+    from compression import zstd
 
 
 @pytest.fixture
@@ -313,6 +321,52 @@ class TestTarArchive:
             assert archive._archive_type == "tar"
             names = archive.namelist()
             assert "file1.txt" in names
+
+
+@pytest.mark.parametrize(
+    ("suffix", "compress"),
+    [
+        ("gz", gzip.compress),
+        ("bz2", bz2.compress),
+        ("xz", lzma.compress),
+        ("zst", zstd.compress),
+    ],
+)
+def test_single_file_compression(tmp_path, suffix, compress):
+    source = tmp_path / f"report.txt.{suffix}"
+    source.write_bytes(compress(b"report contents"))
+
+    with Archive(source) as archive:
+        assert archive.namelist() == ["report.txt"]
+        assert list(archive) == ["report.txt"]
+        assert len(archive) == 1
+        assert archive.size == len(b"report contents")
+        assert archive.is_file("report.txt")
+        assert not archive.is_dir("report.txt")
+        (info,) = archive.infolist()
+        assert info.name == "report.txt"
+        assert info.raw is None
+        assert info.compressed_size == source.stat().st_size
+        stream = archive.open(info)
+        assert stream is not None
+        with stream:
+            assert stream.read() == b"report contents"
+        output = archive.extract(info, tmp_path / "out")
+        assert Path(output).read_bytes() == b"report contents"
+        with pytest.raises(KeyError):
+            archive.extract("other.txt", tmp_path / "out")
+        with pytest.raises(ValueError, match="single-file compressed"):
+            archive.add(source)
+
+    with pytest.raises(ValueError, match="single-file compressed"):
+        Archive.open_archive(tmp_path / f"new.{suffix}", mode="w")
+
+
+def test_invalid_single_file_compression(tmp_path):
+    source = tmp_path / "bad.gz"
+    source.write_bytes(b"not gzip")
+    with pytest.raises(BadArchiveError), Archive(source):
+        pass
 
 
 class TestArchiveProperties:

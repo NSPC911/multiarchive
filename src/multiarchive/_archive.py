@@ -5,8 +5,9 @@ from datetime import datetime
 from io import TextIOWrapper
 from os import path
 from pathlib import Path
+from shutil import copyfileobj
 from types import TracebackType
-from typing import IO, Iterator, List, Literal, TypeAlias
+from typing import IO, Iterator, List, Literal, TypeAlias, cast
 
 try:
     import bz2 as bzip2
@@ -37,6 +38,20 @@ except ImportError:
 else:
     zstd_available = True
 
+try:
+    if sys.version_info < (3, 14):
+        from backports import zstd  # ty: ignore[unresolved-import]
+    else:
+        from compression import zstd
+except ImportError:
+    zstd = None  # ty: ignore
+
+BadCompression = (OSError, EOFError, ValueError)
+if lzma is not None:
+    BadCompression += (lzma.LZMAError,)
+if zstd is not None:
+    BadCompression += (zstd.ZstdError,)
+
 
 # Type Aliases
 if rarfile is not None:
@@ -61,7 +76,7 @@ Algos: TypeAlias = Literal[
 ]
 
 
-class BadArchiveError(Exception):
+class BadArchiveError(RuntimeError):
     """Custom exception for handling bad or unsupported archive files."""
 
 
@@ -83,7 +98,7 @@ class ArchiveMemberInfo:
 
     The `raw` attribute provides direct access to the underlying backend-specific
     info object (ZipInfo, TarInfo, or RarInfo) when advanced or format-specific
-    features are needed.
+    features are needed. It is None for single-file compressed formats.
     """
 
     name: str
@@ -92,7 +107,7 @@ class ArchiveMemberInfo:
     mtime: float
     mode: int | None
     is_dir: bool
-    raw: InfoType
+    raw: InfoType | None
 
     @classmethod
     def from_zipinfo(cls, info: zipfile.ZipInfo) -> "ArchiveMemberInfo":
@@ -171,8 +186,10 @@ class Archive:
         self.mode = mode
         self.compression_level = compression_level
         self.algo = algo
-        self._archive: ArchiveType | None = None
-        self._archive_type: Literal["zip", "rar", "tar"] | None = None
+        self._archive: ArchiveType | IO[bytes] | None = None
+        self._archive_type: (
+            Literal["zip", "rar", "tar", "gz", "bz2", "xz", "zst"] | None
+        ) = None
         self._compress_file_obj: CompressFileObjType | None = None
         self.strict_timestamps = strict_timestamps
 
@@ -281,6 +298,7 @@ class Archive:
             FileNotFoundError: If the archive file doesn't exist
             NotImplementedError: If the archive is password-protected (for ZIP and RAR)
             ValueError: If the file is not a valid ZIP, RAR, or TAR archive
+            BadArchiveError: If a compressed file has invalid contents
             RuntimeError: If the file is not readable or is not a file
         """  # noqa: DOC502
         # first check if it is readable at all
@@ -295,7 +313,9 @@ class Archive:
             # Check for password protection
             if any(zinfo.flag_bits & 0x1 for zinfo in archive.infolist()):
                 archive.close()
-                raise NotImplementedError("Password-protected ZIP files are not supported")
+                raise NotImplementedError(
+                    "Password-protected ZIP files are not supported"
+                )
             self._archive = archive
             self._archive_type = "zip"
             return
@@ -308,7 +328,9 @@ class Archive:
             # Check for password protection
             if archive.needs_password():
                 archive.close()
-                raise NotImplementedError("Password-protected RAR files are not supported")
+                raise NotImplementedError(
+                    "Password-protected RAR files are not supported"
+                )
             self._archive = archive
             self._archive_type = "rar"
             return
@@ -323,6 +345,25 @@ class Archive:
         except tarfile.TarError:
             pass
 
+        # A compressed file without a TAR payload contains exactly one file.
+        suffix = Path(self.filename).suffix.lower()
+        if suffix in (".gz", ".bz2", ".xz", ".zst", ".zstd"):
+            kind = {
+                ".gz": "gz",
+                ".bz2": "bz2",
+                ".xz": "xz",
+                ".zst": "zst",
+                ".zstd": "zst",
+            }[suffix]
+            try:
+                with self._open_compressed(kind) as stream:
+                    stream.read(1)  # Verify the stream before accepting the format.
+            except BadCompression as exc:
+                raise BadArchiveError(f"Failed to open compressed file. {exc}") from exc
+            self._archive = self._open_compressed(kind)
+            self._archive_type = cast(Literal["gz", "bz2", "xz", "zst"], kind)
+            return
+
         raise ValueError(
             f"Cannot open '{self.filename}': not a valid ZIP, RAR, or TAR archive"
         )
@@ -334,6 +375,24 @@ class Archive:
             ValueError: If file extension is not recognized or compression_level is invalid
         """
         filename_lower = self.filename.lower()
+
+        if (
+            self.algo is None
+            and filename_lower.endswith((
+                ".gz",
+                ".bz2",
+                ".xz",
+                ".zst",
+                ".zstd",
+            ))
+            and not filename_lower.endswith((
+                ".tar.gz",
+                ".tar.bz2",
+                ".tar.xz",
+                ".tar.zst",
+            ))
+        ):
+            raise ValueError("Writing single-file compressed formats is not supported")
 
         if filename_lower.endswith(ArchiveExtensions.zip) or (self.algo == "zip"):
             self._archive_type = "zip"
@@ -452,6 +511,19 @@ class Archive:
 
         try:
             match self._archive_type:
+                case "gz" | "bz2" | "xz" | "zst":
+                    stat = Path(self.filename).stat()
+                    return [
+                        ArchiveMemberInfo(
+                            name=self._single_member_name(),
+                            uncompressed_size=self.size,
+                            compressed_size=stat.st_size,
+                            mtime=stat.st_mtime,
+                            mode=stat.st_mode & 0o777,
+                            is_dir=False,
+                            raw=None,
+                        )
+                    ]
                 case "rar":
                     assert isinstance(self._archive, rarfile.RarFile)
                     return [
@@ -491,6 +563,8 @@ class Archive:
 
         try:
             match self._archive_type:
+                case "gz" | "bz2" | "xz" | "zst":
+                    return [self._single_member_name()]
                 case "zip":
                     assert isinstance(self._archive, zipfile.ZipFile)
                     return self._archive.namelist()
@@ -527,10 +601,19 @@ class Archive:
         if not self._archive:
             raise RuntimeError("Archive not opened")
         if isinstance(member, ArchiveMemberInfo):
-            member = member.raw
+            member = member.raw if member.raw is not None else member.name
 
         try:
             match self._archive_type:
+                case "gz" | "bz2" | "xz" | "zst":
+                    source = self.open(member)
+                    assert source is not None
+                    with source:
+                        destination = Path(path or ".") / self._single_member_name()
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        with destination.open("wb") as target:
+                            copyfileobj(source, target)
+                    return str(destination)
                 case "rar":
                     assert isinstance(self._archive, rarfile.RarFile)
                     if isinstance(member, rarfile.RarInfo):
@@ -585,14 +668,24 @@ class Archive:
             ValueError: If a RAR file is attempted to be opened in anything that isn't read mode
             BadArchiveError: If the member cannot be opened due to archive related errors
             FileNotFoundError: If the file is no longer available
+            KeyError: If the requested member is not in a single-file compressed file
         """
         if not self._archive:
             raise RuntimeError("Archive not opened")
         if isinstance(member, ArchiveMemberInfo):
-            member = member.raw
+            member = member.raw if member.raw is not None else member.name
 
         try:
             match self._archive_type:
+                case "gz" | "bz2" | "xz" | "zst":
+                    if mode != "r":
+                        raise ValueError(
+                            "Compressed members can only be opened in read mode"
+                        )
+                    if member != self._single_member_name():
+                        raise KeyError(member)
+                    assert self._archive_type is not None
+                    return self._open_compressed(self._archive_type)
                 case "zip":
                     assert isinstance(self._archive, zipfile.ZipFile)
                     member_arg = (
@@ -649,6 +742,14 @@ class Archive:
             raise RuntimeError("Archive not opened")
 
         match self._archive_type:
+            case "gz" | "bz2" | "xz" | "zst":
+                stream = self.open(self._single_member_name())
+                assert stream is not None
+                with stream:
+                    return sum(
+                        len(chunk)
+                        for chunk in iter(lambda: stream.read(1024 * 1024), b"")
+                    )
             case "zip":
                 assert isinstance(self._archive, zipfile.ZipFile)
                 return sum(info.file_size for info in self._archive.infolist())
@@ -748,6 +849,7 @@ class Archive:
 
         Raises:
             RuntimeError: If archive is not opened
+            KeyError: If the requested member is not in a single-file compressed file
         """
         if not self._archive:
             raise RuntimeError("Archive not opened")
@@ -755,6 +857,10 @@ class Archive:
             return member.is_dir
 
         match self._archive_type:
+            case "gz" | "bz2" | "xz" | "zst":
+                if member != self._single_member_name():
+                    raise KeyError(member)
+                return False
             case "zip":
                 assert isinstance(self._archive, zipfile.ZipFile)
                 info = (
@@ -808,6 +914,8 @@ class Archive:
         """
         if not self._archive:
             raise RuntimeError("Archive not opened")
+        if self._archive_type in ("gz", "bz2", "xz", "zst"):
+            raise ValueError("Cannot add files to a single-file compressed format")
         if self.mode not in ("w", "a"):
             raise ValueError(
                 "Archive must be opened in write ('w') or append ('a') mode"
@@ -825,3 +933,29 @@ class Archive:
             case _:
                 assert isinstance(self._archive, tarfile.TarFile)
                 self._archive.add(file, arcname=arcname)
+
+    def _single_member_name(self) -> str:
+        return Path(self.filename).name.rsplit(".", 1)[0]
+
+    def _open_compressed(self, kind: str) -> IO[bytes]:
+        match kind:
+            case "gz":
+                if gzip is None:
+                    raise ModuleNotFoundError("gzip module is not available")
+                return cast(IO[bytes], gzip.open(self.filename, "rb"))
+            case "bz2":
+                if bzip2 is None:
+                    raise ModuleNotFoundError("bzip2 module is not available")
+                return cast(IO[bytes], bzip2.open(self.filename, "rb"))
+            case "xz":
+                if lzma is None:
+                    raise ModuleNotFoundError("lzma module is not available")
+                return cast(IO[bytes], lzma.open(self.filename, "rb"))
+            case "zst":
+                if zstd is None:
+                    raise ModuleNotFoundError(
+                        "Zstandard support requires Python 3.14 or backports-zstd"
+                    )
+                return cast(IO[bytes], zstd.open(self.filename, "rb"))
+            case _:
+                raise ValueError(f"Unknown compression format: {kind}")
