@@ -1,6 +1,6 @@
 [project]
 name = "multiarchive"
-version = "0.2.0"
+version = "0.2.1"
 description = "A high level archive handler for Python."
 readme = "README.md"
 authors = [
@@ -15,13 +15,13 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "backports-zstd>=1.3.0 ; python_full_version < '3.14'",
-    "poethepoet>=0.45.0",
-    "pytest>=9.0.3",
-    "pytest-xdist>=3.8.0",
-    "rarfile>=4.2",
-    "ruff>=0.15.12",
-    "ty==0.0.32",
+  "backports-zstd>=1.3.0 ; python_full_version < '3.14'",
+  "poethepoet>=0.45.0",
+  "pytest>=9.0.3",
+  "pytest-xdist>=3.8.0",
+  "rarfile>=4.2",
+  "ruff>=0.15.12",
+  "ty==0.0.32",
 ]
 
 [tool.poe.tasks]
