@@ -2,6 +2,8 @@ import bz2
 import gzip
 import lzma
 import os
+import shutil
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -548,7 +550,36 @@ class TestBadArchiveError:
 
 
 class TestPasswordProtected:
-    def test_password_protected_zip_skipped(self) -> None:
-        pytest.skip(
-            "Creating password-protected ZIP requires external encryption tools"
+    @pytest.fixture
+    def encrypted_zip(self, tmp_path: Path) -> Path:
+        seven_zip = shutil.which("7z")
+        if seven_zip is None:
+            pytest.skip("Creating a password-protected ZIP requires 7-Zip")
+        source = tmp_path / "secret.txt"
+        source.write_bytes(b"secret contents")
+        archive = tmp_path / "encrypted.zip"
+        subprocess.run(
+            [seven_zip, "a", "-tzip", "-ppassword", str(archive), str(source)],
+            check=True,
+            capture_output=True,
         )
+        return archive
+
+    def test_password_protected_zip(self, encrypted_zip: Path) -> None:
+        with Archive(encrypted_zip, pwd=b"password") as archive:
+            member = archive.namelist()[0]
+            stream = archive.open(member)
+            assert stream is not None
+            with stream:
+                assert stream.read() == b"secret contents"
+
+        archive = Archive.open_archive(encrypted_zip, pwd=b"password")
+        archive.close()
+
+    def test_wrong_zip_password_is_value_error(self, encrypted_zip: Path) -> None:
+        with pytest.raises(ValueError, match="Invalid password"):
+            Archive.open_archive(encrypted_zip, pwd=b"wrong")
+
+    def test_tar_rejects_password(self, tar_archive: Path) -> None:
+        with pytest.raises(ValueError, match="not supported for TAR"):
+            Archive.open_archive(tar_archive, pwd=b"password")

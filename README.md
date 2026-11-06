@@ -22,7 +22,7 @@ uv add "backports-zstd; python_version < '3.14'"
 
 ## Quick Start
 
-```python
+```py
 from multiarchive import Archive
 
 # Open and inspect
@@ -73,14 +73,14 @@ Plain compressed files expose one member named after the file without its compre
 
 Use the context manager (recommended):
 
-```python
+```py
 with Archive("file.zip") as arc:
     ...
 ```
 
 Or the classmethod:
 
-```python
+```py
 arc = Archive.open_archive("file.zip")
 try:
     arc.namelist()
@@ -88,12 +88,30 @@ finally:
     arc.close()
 ```
 
-Reading is supported on all formats, but password-protected archives are not supported and will raise a `ValueError`.
+Reading is supported on all formats
 If `algo` isnt explicitly provided, it will attempt to open it as ZIP first, then TAR, then RAR (if `rarfile` is installed). If all fails, it raises a ValueError.
+
+#### Passwords
+
+```py
+with Archive("file.zip", pwd=b"secret") as arc:
+    ...
+```
+
+classmethod
+
+```py
+arc = Archive.open_archive("file.zip", pwd=b"secret")
+```
+
+Exceptions for passwords:
+- `ValueError`: if archive needs password but none was provided
+- `KeyError`: if provided password is incorrect
+- `TypeError`: if password is provided for a tarball (not supported)
 
 ### Listing Members
 
-```python
+```py
 with Archive("file.zip") as arc:
     names = arc.namelist()  # Just names
     names = arc.members     # alias to namelist
@@ -105,7 +123,7 @@ with Archive("file.zip") as arc:
 
 ### Checking Membership
 
-```python
+```py
 with Archive("file.zip") as arc:
     if "config.json" in arc:
         print("Found!")
@@ -119,7 +137,7 @@ with Archive("file.zip") as arc:
 
 ### Extracting
 
-```python
+```py
 with Archive("file.tar.gz") as arc:
     # Single file
     arc.extract("src/main.py", path="./extracted")
@@ -127,7 +145,7 @@ with Archive("file.tar.gz") as arc:
 
 ### Reading Member Contents
 
-```python
+```py
 with Archive("file.zip") as arc:
     f = arc.open("data.json")
     if f is not None:
@@ -139,7 +157,7 @@ with Archive("file.zip") as arc:
 
 ### Creating a New Archive
 
-```python
+```py
 from multiarchive import Archive
 
 # ZIP
@@ -153,7 +171,7 @@ with Archive("output.tar.gz", mode="w", compression_level=9) as arc:
 
 Add members with an optional name to use inside the archive:
 
-```python
+```py
 with Archive("output.zip", mode="w") as arc:
     arc.add("src/main.py", arcname="main.py")
 ```
@@ -161,14 +179,14 @@ with Archive("output.zip", mode="w") as arc:
 ZIP timestamps are limited to the years 1980 through 2107. To clamp timestamps
 outside that range instead of raising an error:
 
-```python
+```py
 with Archive("output.zip", mode="w", strict_timestamps=False) as arc:
     arc.add("old-file.txt")
 ```
 
 The format is determined by file extension. Use the `algo` parameter to override:
 
-```python
+```py
 with Archive("my_archive", mode="w", algo="tar.xz") as arc:
     ...
 ```
@@ -187,19 +205,19 @@ with Archive("my_archive", mode="w", algo="tar.xz") as arc:
 
 The `infolist()` method returns `ArchiveMemberInfo` objects with a unified interface across all formats:
 
-| Field               | Type                            | Description                            |
-| ------------------- | ------------------------------- | -------------------------------------- |
-| `name`              | `str`                           | Member filename                        |
-| `uncompressed_size` | `int`                           | Original file size in bytes            |
-| `compressed_size`   | `int \| None`                   | Compressed size (`None` for TAR)       |
-| `mtime`             | `float`                         | Modification time as epoch seconds     |
-| `mode`              | `int \| None`                   | Unix permission bits                   |
-| `is_dir`            | `bool`                          | Whether the member is a directory      |
+| Field               | Type                                    | Description                                                 |
+| ------------------- | --------------------------------------- | ----------------------------------------------------------- |
+| `name`              | `str`                                   | Member filename                                             |
+| `uncompressed_size` | `int`                                   | Original file size in bytes                                 |
+| `compressed_size`   | `int \| None`                           | Compressed size (`None` for TAR)                            |
+| `mtime`             | `float`                                 | Modification time as epoch seconds                          |
+| `mode`              | `int \| None`                           | Unix permission bits                                        |
+| `is_dir`            | `bool`                                  | Whether the member is a directory                           |
 | `raw`               | `ZipInfo \| TarInfo \| RarInfo \| None` | Original backend object (`None` for plain compressed files) |
 
 Factory methods for direct conversion (you shouldn't need these in normal usage):
 
-```python
+```py
 info = ArchiveMemberInfo.from_zipinfo(zip_info)
 info = ArchiveMemberInfo.from_tarinfo(tar_info)
 info = ArchiveMemberInfo.from_rarinfo(rar_info)
@@ -207,15 +225,15 @@ info = ArchiveMemberInfo.from_rarinfo(rar_info)
 
 ## Properties
 
-| Method/Property         | Description                                                     |
-| ----------------------- | --------------------------------------------------------------- |
-| `members`               | Alias for `namelist()`                                          |
-| `size`                  | Total uncompressed size of all members                          |
-| `comment` / `comment=`  | Get/set archive comment (ZIP only, raises ValueError otherwise) |
+| Method/Property        | Description                                                     |
+| ---------------------- | --------------------------------------------------------------- |
+| `members`              | Alias for `namelist()`                                          |
+| `size`                 | Total uncompressed size of all members                          |
+| `comment` / `comment=` | Get/set archive comment (ZIP only, raises ValueError otherwise) |
 
 ## Error Handling
 
-```python
+```py
 from multiarchive import Archive, BadArchiveError
 
 try:
@@ -237,7 +255,7 @@ except FileNotFoundError:
 
 ### `Archive`
 
-```python
+```py
 Archive(
     filename: str | Path,
     mode: str = "r",
@@ -272,7 +290,7 @@ Raised when an archive file is corrupt or in an unsupported format.
 
 Frozen dataclass mapping format names to their common file extensions:
 
-```python
+```py
 ArchiveExtensions.zip     # (".zip",)
 ArchiveExtensions.gz      # (".tgz", ".tar.gz")
 ArchiveExtensions.xz      # (".tar.xz", ".tar.lzma")

@@ -166,6 +166,7 @@ class Archive:
         mode: str = "r",
         compression_level: int | None = None,
         *,
+        pwd: bytes | str | None = None,
         strict_timestamps: bool = True,
     ) -> None:
         """Initialize the archive handler.
@@ -176,6 +177,7 @@ class Archive:
             mode: File access mode ('r' for read, 'w' for write, 'a' for append)
             compression_level: Compression level (ZIP: 0-9, TAR gzip: 0-9, TAR bzip2: 1-9)
                              If None, uses default compression
+            pwd: Password for reading an encrypted ZIP file
             strict_timestamps: If True, reject timestamps outside the range supported
                 by ZIP; if False, clamp them to the minimum or maximum supported value
 
@@ -185,6 +187,7 @@ class Archive:
         self.filename = str(filename)
         self.mode = mode
         self.compression_level = compression_level
+        self.pwd = pwd
         self.algo = algo
         self._archive: ArchiveType | IO[bytes] | None = None
         self._archive_type: (
@@ -201,6 +204,7 @@ class Archive:
         compression_level: int | None = None,
         *,
         algo: Algos | None = None,
+        pwd: bytes | None = None,
         strict_timestamps: bool = True,
     ) -> "Archive":
         """Create and open an archive without using a context manager.
@@ -212,6 +216,7 @@ class Archive:
             algo: Optional override for archive type based on file extension
             mode: File access mode ('r' for read, 'w' for write, 'a' for append)
             compression_level: Compression level (ZIP: 0-9, TAR gzip: 0-9, TAR bzip2: 1-9)
+            pwd: Password for reading an encrypted ZIP file
             strict_timestamps: If True, reject timestamps outside the range supported
                 by ZIP; if False, clamp them to the minimum or maximum supported value
 
@@ -234,6 +239,7 @@ class Archive:
             algo=algo,
             mode=mode,
             compression_level=compression_level,
+            pwd=pwd,
             strict_timestamps=strict_timestamps,
         )
         archive._detect_and_open()
@@ -283,7 +289,7 @@ class Archive:
                 self._detect_and_open_read()
             else:
                 self._detect_and_open_write()
-        except (BadArchive) + (EOFError,) as exc:
+        except BadArchive + (EOFError,) as exc:
             raise BadArchiveError(f"Failed to open archive. {exc}") from exc
         except (FileNotFoundError, ValueError):
             raise
@@ -296,8 +302,9 @@ class Archive:
 
         Raises:
             FileNotFoundError: If the archive file doesn't exist
-            NotImplementedError: If the archive is password-protected (for ZIP and RAR)
             ValueError: If the file is not a valid ZIP, RAR, or TAR archive
+            KeyError: If the provided password is incorrect for an encrypted ZIP file
+            TypeError: If a password is provided for a TAR file (not supported)
             BadArchiveError: If a compressed file has invalid contents
             RuntimeError: If the file is not readable or is not a file
         """  # noqa: DOC502
@@ -310,12 +317,22 @@ class Archive:
         # Try ZIP first
         try:
             archive = zipfile.ZipFile(self.filename, "r")
-            # Check for password protection
-            if any(zinfo.flag_bits & 0x1 for zinfo in archive.infolist()):
-                archive.close()
-                raise NotImplementedError(
-                    "Password-protected ZIP files are not supported"
+            encrypted = [zinfo for zinfo in archive.infolist() if zinfo.flag_bits & 0x1]
+            if encrypted:
+                if self.pwd is None:
+                    archive.close()
+                    raise ValueError("Password required for encrypted ZIP file")
+                archive.setpassword(
+                    self.pwd if type(self.pwd) is bytes else self.pwd.encode()
                 )
+                try:
+                    for zinfo in encrypted:
+                        with archive.open(zinfo) as member:
+                            member.read(1)
+                            break
+                except RuntimeError as exc:
+                    archive.close()
+                    raise KeyError("Invalid password for encrypted ZIP file") from exc
             self._archive = archive
             self._archive_type = "zip"
             return
@@ -327,10 +344,22 @@ class Archive:
             archive = rarfile.RarFile(self.filename, "r")
             # Check for password protection
             if archive.needs_password():
-                archive.close()
-                raise NotImplementedError(
-                    "Password-protected RAR files are not supported"
+                if self.pwd is None:
+                    archive.close()
+                    raise ValueError("Password required for encrypted RAR file")
+                archive.setpassword(
+                    self.pwd.decode() if type(self.pwd) is bytes else self.pwd
                 )
+                try:
+                    for rarinfo in archive.infolist():
+                        if rarinfo.needs_password():
+                            with archive.open(rarinfo) as member:
+                                member.read(1)
+                                break
+                # might be too broad tbh
+                except rarfile.Error as exc:
+                    archive.close()
+                    raise KeyError("Invalid password for encrypted RAR file") from exc
             self._archive = archive
             self._archive_type = "rar"
             return
@@ -340,6 +369,10 @@ class Archive:
         # Try TAR (with auto-detection for compression)
         try:
             self._archive = tarfile.open(self.filename, "r:*")  # noqa: SIM115
+            if self.pwd is not None:
+                self._archive.close()
+                self._archive = None
+                raise TypeError("Passwords are not supported for TAR files")
             self._archive_type = "tar"
             return
         except tarfile.TarError:
@@ -374,6 +407,9 @@ class Archive:
         Raises:
             ValueError: If file extension is not recognized or compression_level is invalid
         """
+        if self.pwd is not None:
+            raise ValueError("Passwords are only supported when reading ZIP files")
+
         filename_lower = self.filename.lower()
 
         if (
