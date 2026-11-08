@@ -577,9 +577,9 @@ class TestPasswordProtected:
         archive.close()
 
     def test_wrong_zip_password_is_value_error(self, encrypted_zip: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid password"):
+        with pytest.raises(KeyError, match="Invalid password"):
             Archive.open_archive(encrypted_zip, pwd=b"wrong")
 
     def test_tar_rejects_password(self, tar_archive: Path) -> None:
-        with pytest.raises(ValueError, match="not supported for TAR"):
+        with pytest.raises(TypeError, match="not supported for TAR"):
             Archive.open_archive(tar_archive, pwd=b"password")
