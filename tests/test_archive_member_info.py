@@ -53,6 +53,8 @@ class TestArchiveMemberInfoFromZipinfo:
         assert info.uncompressed_size == 1024
         assert info.compressed_size == 512
         assert info.is_dir is False
+        assert info.kind == "file"
+        assert info.link_target is None
 
     def test_mtime_conversion(self, sample_zipinfo: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
@@ -75,6 +77,7 @@ class TestArchiveMemberInfoFromZipinfo:
     def test_is_dir_for_directory(self, sample_zipinfo_dir: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo_dir)
         assert info.is_dir is True
+        assert info.kind == "directory"
 
     def test_raw_is_zipinfo(self, sample_zipinfo: zipfile.ZipInfo) -> None:
         info = ArchiveMemberInfo.from_zipinfo(sample_zipinfo)
@@ -88,6 +91,8 @@ class TestArchiveMemberInfoFromTarinfo:
         assert info.name == "test/file.txt"
         assert info.uncompressed_size == 2048
         assert info.is_dir is False
+        assert info.kind == "file"
+        assert info.link_target is None
 
     def test_compressed_size_is_none(self, sample_tarinfo: tarfile.TarInfo) -> None:
         info = ArchiveMemberInfo.from_tarinfo(sample_tarinfo)
@@ -117,8 +122,51 @@ class TestArchiveMemberInfoFromTarinfo:
         info = ArchiveMemberInfo.from_tarinfo(ti)
         assert info.mtime == 0.0
 
+    @pytest.mark.parametrize(
+        ("member_type", "kind", "link_target"),
+        [
+            (tarfile.DIRTYPE, "directory", None),
+            (tarfile.SYMTYPE, "symlink", "target"),
+            (tarfile.LNKTYPE, "hardlink", "target"),
+            (tarfile.FIFOTYPE, "fifo", None),
+            (tarfile.CHRTYPE, "character-device", None),
+            (tarfile.BLKTYPE, "block-device", None),
+            (b"x", "unknown", None),
+        ],
+    )
+    def test_kind_and_link_target(
+        self, member_type: bytes, kind: str, link_target: str | None
+    ) -> None:
+        ti = tarfile.TarInfo("member")
+        ti.type = member_type
+        ti.linkname = "target"
+        info = ArchiveMemberInfo.from_tarinfo(ti)
+        assert info.kind == kind
+        assert info.link_target == link_target
+
 
 class TestArchiveMemberInfoFromRarinfo:
+    @pytest.mark.parametrize(
+        ("redirect_type", "kind"),
+        [
+            (1, "symlink"),
+            (2, "symlink"),
+            (3, "junction"),
+            (4, "hardlink"),
+        ],
+    )
+    def test_redirect_kind_and_target(self, redirect_type: int, kind: str) -> None:
+        import rarfile
+
+        ri = rarfile.RarInfo()
+        ri.filename = "link"
+        ri.file_size = 0
+        ri.compress_size = 0
+        ri.file_redir = (redirect_type, 0, "target")
+        info = ArchiveMemberInfo.from_rarinfo(ri)
+        assert info.kind == kind
+        assert info.link_target == "target"
+
     def test_basic_fields(self) -> None:
         import rarfile
 

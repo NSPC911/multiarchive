@@ -1,3 +1,4 @@
+import stat
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -74,6 +75,33 @@ else:
 Algos: TypeAlias = Literal[
     "zip", "tar", "rar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst"
 ]
+ArchiveMemberKind: TypeAlias = Literal[
+    "file",
+    "directory",
+    "symlink",
+    "junction",
+    "hardlink",
+    "fifo",
+    "character-device",
+    "block-device",
+    "unknown",
+]
+
+
+def _kind_from_mode(mode: int | None) -> ArchiveMemberKind | None:
+    if mode is None:
+        return None
+    return cast(
+        ArchiveMemberKind | None,
+        {
+            stat.S_IFREG: "file",
+            stat.S_IFDIR: "directory",
+            stat.S_IFLNK: "symlink",
+            stat.S_IFIFO: "fifo",
+            stat.S_IFCHR: "character-device",
+            stat.S_IFBLK: "block-device",
+        }.get(stat.S_IFMT(mode)),
+    )
 
 
 class BadArchiveError(RuntimeError):
@@ -107,6 +135,8 @@ class ArchiveMemberInfo:
     mtime: float
     mode: int | None
     is_dir: bool
+    kind: ArchiveMemberKind
+    link_target: str | None
     raw: InfoType | None
 
     @classmethod
@@ -119,6 +149,12 @@ class ArchiveMemberInfo:
             mtime=mtime_dt.timestamp(),
             mode=(info.external_attr >> 16) or None,
             is_dir=info.is_dir(),
+            kind=(
+                "directory"
+                if info.is_dir()
+                else _kind_from_mode(info.external_attr >> 16) or "file"
+            ),
+            link_target=None,
             raw=info,
         )
 
@@ -131,11 +167,30 @@ class ArchiveMemberInfo:
             mtime=float(info.mtime or 0.0),
             mode=info.mode,
             is_dir=info.isdir(),
+            kind=(
+                "file"
+                if info.isreg()
+                else "directory"
+                if info.isdir()
+                else "symlink"
+                if info.issym()
+                else "hardlink"
+                if info.islnk()
+                else "fifo"
+                if info.isfifo()
+                else "character-device"
+                if info.ischr()
+                else "block-device"
+                if info.isblk()
+                else "unknown"
+            ),
+            link_target=info.linkname if info.issym() or info.islnk() else None,
             raw=info,
         )
 
     @classmethod
     def from_rarinfo(cls, info: "rarfile.RarInfo") -> "ArchiveMemberInfo":
+        assert rarfile is not None
         if info.mtime is not None:
             mtime = info.mtime.timestamp()
         elif info.date_time is not None:
@@ -145,6 +200,29 @@ class ArchiveMemberInfo:
         assert info.filename is not None
         assert info.file_size is not None
         assert info.compress_size is not None
+        redir = info.file_redir
+        if redir is not None:
+            kind = cast(
+                ArchiveMemberKind,
+                {
+                    rarfile.RAR5_XREDIR_UNIX_SYMLINK: "symlink",
+                    rarfile.RAR5_XREDIR_WINDOWS_SYMLINK: "symlink",
+                    rarfile.RAR5_XREDIR_WINDOWS_JUNCTION: "junction",
+                    rarfile.RAR5_XREDIR_HARD_LINK: "hardlink",
+                    rarfile.RAR5_XREDIR_FILE_COPY: "file",
+                }.get(redir[0], "unknown"),
+            )
+            link_target = redir[2]
+        else:
+            kind = (
+                "directory"
+                if info.is_dir()
+                else "symlink"
+                if info.is_symlink()
+                else _kind_from_mode(info.mode)
+                or ("file" if info.is_file() else "unknown")
+            )
+            link_target = None
         return cls(
             name=info.filename,
             uncompressed_size=info.file_size,
@@ -152,6 +230,8 @@ class ArchiveMemberInfo:
             mtime=mtime,
             mode=info.mode,
             is_dir=info.is_dir(),
+            kind=kind,
+            link_target=link_target,
             raw=info,
         )
 
@@ -557,6 +637,8 @@ class Archive:
                             mtime=stat.st_mtime,
                             mode=stat.st_mode & 0o777,
                             is_dir=False,
+                            kind="file",
+                            link_target=None,
                             raw=None,
                         )
                     ]

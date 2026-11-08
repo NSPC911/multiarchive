@@ -213,6 +213,8 @@ The `infolist()` method returns `ArchiveMemberInfo` objects with a unified inter
 | `mtime`             | `float`                                 | Modification time as epoch seconds                          |
 | `mode`              | `int \| None`                           | Unix permission bits                                        |
 | `is_dir`            | `bool`                                  | Whether the member is a directory                           |
+| `kind`              | `Literal["file", "directory", "symlink", "junction", "hardlink", "fifo", "character-device", "block-device", "unknown"]` | Member type |
+| `link_target`       | `str \| None`                           | Symlink, junction, or hardlink target when available        |
 | `raw`               | `ZipInfo \| TarInfo \| RarInfo \| None` | Original backend object (`None` for plain compressed files) |
 
 Factory methods for direct conversion (you shouldn't need these in normal usage):
