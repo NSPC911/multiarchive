@@ -257,7 +257,7 @@ class Archive:
             mode: File access mode ('r' for read, 'w' for write, 'a' for append)
             compression_level: Compression level (ZIP: 0-9, TAR gzip: 0-9, TAR bzip2: 1-9)
                              If None, uses default compression
-            pwd: Password for reading an encrypted ZIP file
+            pwd: Password for opening an encrypted file
             strict_timestamps: If True, reject timestamps outside the range supported
                 by ZIP; if False, clamp them to the minimum or maximum supported value
 
@@ -296,7 +296,7 @@ class Archive:
             algo: Optional override for archive type based on file extension
             mode: File access mode ('r' for read, 'w' for write, 'a' for append)
             compression_level: Compression level (ZIP: 0-9, TAR gzip: 0-9, TAR bzip2: 1-9)
-            pwd: Password for reading an encrypted ZIP file
+            pwd: Password for opening an encrypted file
             strict_timestamps: If True, reject timestamps outside the range supported
                 by ZIP; if False, clamp them to the minimum or maximum supported value
 
@@ -487,9 +487,6 @@ class Archive:
         Raises:
             ValueError: If file extension is not recognized or compression_level is invalid
         """
-        if self.pwd is not None:
-            raise ValueError("Passwords are only supported when reading ZIP files")
-
         filename_lower = self.filename.lower()
 
         if (
@@ -775,7 +772,7 @@ class Archive:
 
         Args:
             member: Name of the file to open, or ZipInfo/TarInfo/RarInfo object
-            mode: File open mode (only 'r' supported for TAR and RAR files)
+            mode: File open mode (only 'r' supported for non-TAR compressed and RAR files)
 
         Returns:
             File-like object for reading the member's contents, or None if member
