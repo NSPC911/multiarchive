@@ -1,6 +1,6 @@
 [project]
 name = "multiarchive"
-version = "0.2.4"
+version = "0.2.5"
 description = "A high level archive handler for Python."
 readme = "README.md"
 authors = [
