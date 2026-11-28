@@ -141,7 +141,10 @@ class ArchiveMemberInfo:
 
     @classmethod
     def from_zipinfo(cls, info: zipfile.ZipInfo) -> "ArchiveMemberInfo":
-        mtime_dt = datetime(*info.date_time)
+        try:
+            mtime_dt = datetime(*info.date_time)
+        except ValueError:
+            mtime_dt = datetime(1980, 1, 1)
         return cls(
             name=info.filename,
             uncompressed_size=info.file_size,
@@ -194,7 +197,10 @@ class ArchiveMemberInfo:
         if info.mtime is not None:
             mtime = info.mtime.timestamp()
         elif info.date_time is not None:
-            mtime = datetime(*info.date_time).timestamp()
+            try:
+                mtime = datetime(*info.date_time).timestamp()
+            except ValueError:
+                mtime = 0.0
         else:
             mtime = 0.0
         assert info.filename is not None
